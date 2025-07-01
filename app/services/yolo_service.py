@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import logging
-from ..config import Config
+from ..config.config import Config
 import os
 
 # Configure logging
@@ -19,14 +19,13 @@ logger.info(f"Loading YOLO model from: {Config.YOLO_MODEL_PATH}")
 model = YOLO(Config.YOLO_MODEL_PATH)
 
 def process_rtsp(rtsp_url, username=None, password=None):
-    # Construct RTSP URL with credentials
     final_rtsp_url = rtsp_url
     if username and password:
         final_rtsp_url = rtsp_url.replace("rtsp://", f"rtsp://{username}:{password}@")
     elif Config.DEFAULT_RTSP_USERNAME and Config.DEFAULT_RTSP_PASSWORD:
         logger.info("Using default RTSP credentials from .env")
         final_rtsp_url = rtsp_url.replace("rtsp://", f"rtsp://{Config.DEFAULT_RTSP_USERNAME}:{Config.DEFAULT_RTSP_PASSWORD}@")
-    
+
     logger.info(f"Opening RTSP stream: {final_rtsp_url}")
     cap = cv2.VideoCapture(final_rtsp_url, cv2.CAP_FFMPEG)
     if not cap.isOpened():
@@ -34,35 +33,36 @@ def process_rtsp(rtsp_url, username=None, password=None):
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         cv2.putText(frame, "RTSP Stream Failed", (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         ret, buffer = cv2.imencode('.jpg', frame)
-        return buffer.tobytes()
+        yield buffer.tobytes()
+        return
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            logger.warning(f"Failed to grab frame from {final_rtsp_url}")
-            frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(frame, "Stream Unavailable", (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            ret, buffer = cv2.imencode('.jpg', frame)
-            return buffer.tobytes()
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                logger.warning(f"Failed to grab frame from {final_rtsp_url}")
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(frame, "Stream Unavailable", (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                ret, buffer = cv2.imencode('.jpg', frame)
+                yield buffer.tobytes()
+                break
 
-        # Process frame with YOLO
-        try:
-            results = model(frame, conf=0.5)
-            annotated_frame = results[0].plot()
-        except Exception as e:
-            logger.error(f"YOLO processing error: {e}")
-            annotated_frame = frame
+            try:
+                results = model(frame, conf=0.5)
+                annotated_frame = results[0].plot()
+            except Exception as e:
+                logger.error(f"YOLO processing error: {e}")
+                annotated_frame = frame
 
-        # Encode to JPEG
-        ret, buffer = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-        if not ret:
-            logger.error("Failed to encode frame to JPEG")
-            continue
+            ret, buffer = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            if not ret:
+                logger.error("Failed to encode frame to JPEG")
+                continue
 
-        frame = buffer.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
+            frame = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+    finally:
         cap.release()
         logger.info(f"RTSP stream closed: {final_rtsp_url}")
 

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Neopresensi RTSP Stream</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+  </head>
+  <body>
+    <h1>Live CCTV Stream with Face Detection</h1>
+    <img
+      src="{{ url_for('routes.stream', rtsp_url=config.RTSP_URL) }}"
+      alt="Video Stream"
+    />
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+  </body>
+</html>
